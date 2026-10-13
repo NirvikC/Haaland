@@ -353,6 +353,8 @@ dT_max = max(dT);
 
 Nx = size(dT,1); Ny = size(dT,2); Nz = size(dT,3);
 iy = round(Ny/2);
+diffy = abs(y - 0);
+iy = find(diffy, min(diffy));
 x = E.x; y = E.y; z = E.z;
 T_xz = pinch(dT,2,iy);
 
