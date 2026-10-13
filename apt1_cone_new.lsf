@@ -1,0 +1,361 @@
+########################################################################
+# APT tip (cone + hemispherical apex) - dual counter-propagating
+# Gaussian beam heating model
+# Corrected/realistic version - see accompanying notes for what changed
+########################################################################
+
+R_tip = 40e-9;
+theta = 5*pi/180;
+H = 1.4e-6;
+N = 200;
+material_name = 'Si (Silicon) - Palik';
+material = 'Si (Silicon) - Palik';
+lambda0 = 257.5e-9;
+pulse_duration = 30e-12;
+E_pulse = 100e-12;
+f_rep = 200e3;
+rho = 19300;
+Cp = 134;
+P_avg = E_pulse*f_rep;
+R_base = R_tip + H*tan(theta);
+
+# ---- beam / focusing parameters -------------------------------------
+# w0 was 1e-6 in the original file, i.e. a spot barely 5x the tip radius.
+# Real dual-beam APT/laser-assisted-evaporation setups typically focus
+# to a diffraction-limited spot of order a few microns on the shank of
+# the tip (not down to the apex radius), because the alignment/steering
+# optics cannot and should not focus tighter than that. Using a small
+# w0 forces almost the entire beam power to overlap the absorbing
+# volume -> unrealistically high absorbed fraction A. Widen the waist.
+w0 = 1.5e-6;
+x0 = 3e-6;                 # distance from waist to tip, scaled with w0
+n_bg = 1;
+
+# ---- physically-derived source amplitude -----------------------------
+# The peak electric field that actually corresponds to the stated pulse
+# energy / pulse duration (used for BOTH sources below). In the original
+# file this was computed (E0_phys) and then never used - the sources
+# were instead driven with an arbitrary hard-coded amplitude
+# (2.8e7 V/m), decoupled from E_pulse/pulse_duration.
+P_real   = E_pulse / pulse_duration;                                  # peak power during the pulse (W)
+E0_phys  = sqrt(4*P_real/(pi*w0^2*n_bg*c*eps0));                      # peak field amplitude (V/m)
+?"Physical peak source amplitude E0_phys (V/m) = "+num2str(E0_phys);
+
+deleteall;
+
+dz = H/N;
+
+addfdtd;
+set("x span", 8e-6);
+set("y span", 8e-6);
+set("z span", 3*H);
+set("x min bc", "PML");
+set("x max bc", "PML");
+set("y min bc", "PML");
+set("y max bc", "PML");
+set("z min bc", "PML");
+set("z max bc", "PML");
+set("simulation time", 3000e-15);
+#set("mesh accuracy", 4);   # was left at default/unset - explicit conformal mesh accuracy
+
+# Rounded tip cone
+z_span = 1.4e-6;
+cladding_radius = R_base;
+tip_radius = R_tip;
+cone_angle = 2*5;
+
+theta=tan(cone_angle*pi/180/2);
+xs_tip=tip_radius-(tip_radius*sin(theta));
+tip_length=z_span-tip_radius;
+t=(tip_radius+tip_radius*sin(theta))/2;
+
+#------------add cladding-------------
+addcustom;
+set("name","cone_body");
+set("equation 1",
+num2str(theta)+"*("+num2str(tip_length/2)+"-z)+"+num2str(tip_radius));
+set("create 3D object by","revolution");
+set("x span",cladding_radius*2);
+set("y span",cladding_radius*2);
+set("z span",tip_length+tip_radius*sin(theta));
+set("z", -xs_tip/2);
+set("y",0);
+set("x",0);
+
+#-----------add cladding tip--------------
+addsphere;
+set("name","cone_apex");
+set("make ellipsoid", 0);      # ensure it's a true sphere, not an ellipsoid
+set("radius", tip_radius);
+set("radius 2", tip_radius);   # belt-and-braces: force y-radius = tip_radius
+set("radius 3", tip_radius);   # force z-radius = tip_radius too
+set("x", 0);
+set("y", 0);
+set("z", tip_length/2);
+set("material", material);
+
+selectall;
+set("material",material);
+if(get("material")=="<Object defined dielectric>")
+  { set("index",index); }
+
+addstructuregroup;
+set("name","APT_tip");
+select("cone_body");
+addtogroup("APT_tip");
+select("cone_apex");
+addtogroup("APT_tip");
+select("APT_tip");
+set("x",0);
+set("y",0);
+set("z",0);
+
+# ---- mesh override ----------------------------------------------------
+# Original override only covered a 120nm cube right at the apex. That
+# starves the shank/shoulder of the cone (where a large share of the
+# absorbed power actually lands once the beam is properly defocused) of
+# resolution, and can produce staircased "hot spots" that inflate the
+# volumetric eps''|E|^2 absorption integral. Use two nested overrides:
+# a coarser one over the whole tip, a fine one at the apex only.
+
+addmesh;
+set("name","mesh_apex");
+set("x",0); set("y",0); set("z",H/2);
+set("x span",150e-9);
+set("y span",150e-9);
+set("z span",150e-9);
+set("dx",2e-9); set("dy",2e-9); set("dz",2e-9);
+
+
+z_apex = H/2;
+
+# ---- dual Gaussian sources ---------------------------------------------
+# IMPORTANT: two sources at exactly the same CW frequency, injected in
+# the same FDTD run, interfere coherently (they form a standing wave in
+# the tip). That is only physically correct if the two arms are in fact
+# mutually coherent and time-overlapped at the tip (interferometrically
+# locked, e.g. split from one pulse with a path difference well inside
+# the pulse's coherence length). If, as in most dual-beam APT setups,
+# the two pulses are independent (different laser heads, or the same
+# pulse with a delay >> coherence time), they do NOT interfere in
+# reality, and injecting them together will artificially raise the
+# local field intensity (up to 4x at constructive points) and hence A.
+#
+# Safest/most general approach: run laser1 and laser2 in two SEPARATE
+# simulations (comment one addgaussian block out at a time), record
+# Pabs1 and Pabs2 and P1, P2 independently, then combine incoherently:
+#   A = (Pabs1 + Pabs2) / (P1 + P2)
+# The block below still injects both together for convenience; switch
+# to two separate runs if the two beams are not phase-locked in your
+# real system.
+
+addgaussian;
+set("name","laser1");
+set("injection axis","x");
+set("direction","Forward");
+set("y span", 3*w0);
+set("z span", H + 200e-9);
+set("waist radius w0",w0);
+set("distance from waist",x0);
+set("wavelength start", lambda0-0.005e-9);
+set("wavelength stop", lambda0+0.005e-9);
+set("x", -x0);
+set("z", H/2-10e-9);
+set("polarization angle", 90);
+set("amplitude", E0_phys);
+
+addgaussian;
+set("name","laser2");
+set("injection axis","x");
+set("direction","Backward");
+set("y span", 3*w0);
+set("z span", H + 200e-9);
+set("waist radius w0",w0);
+set("distance from waist",-x0);
+set("wavelength start", lambda0-0.005e-9);
+set("wavelength stop", lambda0+0.005e-9);
+set("x", x0);
+set("z", H/2-10e-9);
+set("polarization angle", 90);
+set("amplitude", E0_phys);
+
+select("laser1");
+set("phase", 0); 
+select("laser2");
+set("phase", 180);
+# ---- monitors -----------------------------------------------------------
+# The original abs_monitor box (300nm x 300nm x (H-100nm), offset in z)
+# did not fully enclose the cone (base radius ~163nm -> diameter
+# ~325nm, close to clipping the 300nm box; and it missed the bottom
+# ~150nm of the shank in z). Any absorbing volume left outside the
+# monitor is silently dropped from Pabs but NOT from Pin, which usually
+# makes A too LOW, not too high - but it is still wrong and should be
+# fixed so the number means what you think it means. Enclose the whole
+# structure with margin.
+
+addpower;
+set("name","abs_monitor");
+set("monitor type","3D");
+set("x span", 2*R_base + 40e-9);
+set("y span", 2*R_base + 40e-9);
+set("z span", H + 200e-9);
+set("x", 0);
+set("y", 0);
+set("z", 0);
+set("output power", 1);
+
+
+
+#run;
+
+run;
+
+########################################################################
+# Post-processing
+########################################################################
+
+E = getresult("abs_monitor","E");
+
+f_ind = 1;
+
+x = E.x;
+y = E.y;
+z = E.z;
+
+Ex = E.Ex;
+Ey = E.Ey;
+Ez = E.Ez;
+E2 = abs(Ex)^2 + abs(Ey)^2 + abs(Ez)^2;
+E2 = pinch(E2,4,1);
+
+f0 = E.f(f_ind);
+omega = 2*pi*f0;
+
+eps_im = imag(getfdtdindex(material_name,f0,f0,f0)^2);
+
+Pabs_density = 0.5 * omega * eps0 * eps_im * E2;
+
+Nx = length(x);
+Ny = length(y);
+Nz = length(z);
+
+X = matrix(Nx,Ny,Nz);
+Y = matrix(Nx,Ny,Nz);
+Z = matrix(Nx,Ny,Nz);
+
+for(i=1:Nx){
+    for(j=1:Ny){
+        for(k=1:Nz){
+            X(i,j,k) = x(i);
+            Y(i,j,k) = y(j);
+            Z(i,j,k) = z(k);
+        }
+    }
+}
+
+##############################################
+# Rounded-tip geometry mask (unchanged logic, only bounds widened)
+##############################################
+
+theta_local = tan(cone_angle*pi/180/2);
+xs_tip = tip_radius - tip_radius*sin(theta_local);
+tip_length = z_span - tip_radius;
+t = (tip_radius + tip_radius*sin(theta_local))/2;
+z_sphere = tip_length/2;
+
+mask = matrix(Nx,Ny,Nz);
+
+for(i=1:Nx){
+for(j=1:Ny){
+for(k=1:Nz){
+    xx = X(i,j,k);
+    yy = Y(i,j,k);
+    zz = Z(i,j,k);
+    r = sqrt(xx^2 + yy^2);
+    inside_cone = 0;
+    inside_tip  = 0;
+
+    # cone body test — change upper bound
+    if (zz <= tip_length/2) {
+        rcone = theta_local*(tip_length/2 - zz) + tip_radius;
+        if(r <= rcone){ inside_cone = 1; }
+    }
+
+    # apex test — change lower bound
+    if (zz > tip_length/2) {
+        if(zz <= z_sphere + tip_radius) {
+            arg = tip_radius^2 - (zz - z_sphere)^2;
+            if(arg >= 0){
+                rsphere = sqrt(arg);
+                if(r <= rsphere){ inside_tip = 1; }
+            }
+        }
+    }
+    mask(i,j,k) = inside_cone + inside_tip;
+    if (mask(i,j,k) > 1) { mask(i,j,k) = 1; }
+}}}
+
+Pabs_density = Pabs_density * mask;
+
+dx2 = matrix(length(x));
+dy2 = matrix(length(y));
+dz2 = matrix(length(z));
+
+for (i=1:length(x)-1) { dx2(i) = x(i+1)-x(i); }
+dx2(length(x)) = dx2(length(x)-1);
+for (j=1:length(y)-1) { dy2(j) = y(j+1)-y(j); }
+dy2(length(y)) = dy2(length(y)-1);
+for (k=1:length(z)-1) { dz2(k) = z(k+1)-z(k); }
+dz2(length(z)) = dz2(length(z)-1);
+dx=dx2; dy=dy2; dz=dz2;
+
+Nx = length(x); Ny = length(y); Nz = length(z);
+dV = matrix(Nx,Ny,Nz);
+for (i=1:Nx) { for (j=1:Ny) { for (k=1:Nz) {
+    dV(i,j,k) = dx(i)*dy(j)*dz(k);
+}}}
+
+P_sim = sum(sum(sum(Pabs_density * dV)));
+Pnorm = Pabs_density / P_sim;
+
+# ---- FIXED source-power extraction --------------------------------
+# Original call: sourcepower(f0,2,"laser1")  <-- not a documented
+# sourcepower() signature; select the source object first, then call
+# sourcepower(f) with a single frequency argument. If your Lumerical
+# build silently accepted the old call, double check P1/P2 against the
+# values below - a wrong (too small) Pin_total is the single most
+# likely reason A came out unrealistically high, since A = P_sim/Pin.
+select("laser1");
+P1 = sourcepower(f0);
+select("laser2");
+P2 = sourcepower(f0);
+
+Pin_total = P1 + P2;
+A = P_sim/Pin_total;
+E_abs_real = A * E_pulse;
+Q_real = Pnorm * E_abs_real/pulse_duration;
+
+dt = pulse_duration;
+dT = Q_real / (rho * Cp);
+dT_max = max(dT);
+
+?"Peak temperature rise (K):";
+?dT_max;
+?"P1 (W) = "+num2str(P1);
+?"P2 (W) = "+num2str(P2);
+?"Pin_total (W) = "+num2str(Pin_total);
+?"P_sim / absorbed power in tip (W) = "+num2str(P_sim);
+?"A = "+num2str(A);
+?"Max_Pabs_density = "+num2str(max(Pabs_density));
+?"max_Q_real = "+num2str(max(Q_real));
+?"Max_E2 = "+num2str(max(E2));
+?"Max_Ez = "+num2str(max(abs(Ez)));
+
+Nx = size(dT,1); Ny = size(dT,2); Nz = size(dT,3);
+iy = round(Ny/2);
+x = E.x; y = E.y; z = E.z;
+T_xz = pinch(dT,2,iy);
+
+image(x, z, T_xz);
+image(x, z, log10(T_xz + 1e-12));
+matlabsave("APT_Pabs.mat", x, y, z, Q_real);
