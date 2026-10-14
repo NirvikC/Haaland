@@ -215,118 +215,115 @@ run;
 ########################################################################
 # Post-processing
 ########################################################################
+# ---- Run 1: laser1 only ----
+select("laser2"); set("enabled",0);
+select("laser1"); set("enabled",1);
+run;
 
-E = getresult("abs_monitor","E");
+E1 = getresult("abs_monitor","E");
+x = E1.x; y = E1.y; z = E1.z;
 
-f_ind = 1;
+Ex1 = E1.Ex; Ey1 = E1.Ey; Ez1 = E1.Ez;
+E2_1 = abs(Ex1)^2 + abs(Ey1)^2 + abs(Ez1)^2;
+E2_1 = pinch(E2_1,4,1);
 
-x = E.x;
-y = E.y;
-z = E.z;
-
-Ex = E.Ex;
-Ey = E.Ey;
-Ez = E.Ez;
-E2 = abs(Ex)^2 + abs(Ey)^2 + abs(Ez)^2;
-E2 = pinch(E2,4,1);
-
-f0 = E.f(f_ind);
+f0 = E1.f(1);
 omega = 2*pi*f0;
-
 eps_im = imag(getfdtdindex(material_name,f0,f0,f0)^2);
 
-Pabs_density = 0.5 * omega * eps0 * eps_im * E2;
+Pabs_density_1 = 0.5 * omega * eps0 * eps_im * E2_1;
 
-Nx = length(x);
-Ny = length(y);
-Nz = length(z);
-
-X = matrix(Nx,Ny,Nz);
-Y = matrix(Nx,Ny,Nz);
-Z = matrix(Nx,Ny,Nz);
-
-for(i=1:Nx){
-    for(j=1:Ny){
-        for(k=1:Nz){
-            X(i,j,k) = x(i);
-            Y(i,j,k) = y(j);
-            Z(i,j,k) = z(k);
-        }
-    }
-}
-
-##############################################
-# Rounded-tip geometry mask (unchanged logic, only bounds widened)
-##############################################
-
-theta_local = tan(cone_angle*pi/180/2);
-xs_tip = tip_radius - tip_radius*sin(theta_local);
-tip_length = z_span - tip_radius;
-t = (tip_radius + tip_radius*sin(theta_local))/2;
-z_sphere = tip_length/2;
+# ---- Build geometry mask ONCE (grid is identical across both runs
+#      since the monitor and structure don't change, only the source) ----
+Nx = length(x); Ny = length(y); Nz = length(z);
+X = matrix(Nx,Ny,Nz); Y = matrix(Nx,Ny,Nz); Z = matrix(Nx,Ny,Nz);
+for(i=1:Nx){ for(j=1:Ny){ for(k=1:Nz){
+    X(i,j,k)=x(i); Y(i,j,k)=y(j); Z(i,j,k)=z(k);
+}}}
 
 mask = matrix(Nx,Ny,Nz);
-for(i=1:Nx){ for(j=1:Ny){ for(k=1:Nz){
+for(i=1:Nx){
+for(j=1:Ny){
+for(k=1:Nz){
     xx = X(i,j,k); yy = Y(i,j,k); zz = Z(i,j,k);
-    r = sqrt(xx^2+yy^2);
-    inside = 0;
+    r = sqrt(xx^2 + yy^2);
+    inside_cone = 0; inside_tip = 0;
 
-    if (zz <= z_junction) {
-        rcone = tan(theta_rad)*(z_junction - zz) + R_tip;
-        if (r <= rcone) { inside = 1; }
-    } else {
-        if (zz <= z_apex_top) {
-            arg = R_tip^2 - (zz - z_junction)^2;
-            if (arg >= 0) {
-                if (r <= sqrt(arg)) { inside = 1; }
+    if (zz <= tip_length/2) {
+        rcone = theta_local*(tip_length/2 - zz) + tip_radius;
+        if(r <= rcone){ inside_cone = 1; }
+    }
+    if (zz > tip_length/2) {
+        if(zz <= z_sphere + tip_radius) {
+            arg = tip_radius^2 - (zz - z_sphere)^2;
+            if(arg >= 0){
+                rsphere = sqrt(arg);
+                if(r <= rsphere){ inside_tip = 1; }
             }
         }
     }
-    mask(i,j,k) = inside;
+    mask(i,j,k) = inside_cone + inside_tip;
+    if (mask(i,j,k) > 1) { mask(i,j,k) = 1; }
 }}}
 
-Pabs_density = Pabs_density * mask;
+Pabs_density_1 = Pabs_density_1 * mask;
 
-dx2 = matrix(length(x));
-dy2 = matrix(length(y));
-dz2 = matrix(length(z));
-
-for (i=1:length(x)-1) { dx2(i) = x(i+1)-x(i); }
-dx2(length(x)) = dx2(length(x)-1);
-for (j=1:length(y)-1) { dy2(j) = y(j+1)-y(j); }
-dy2(length(y)) = dy2(length(y)-1);
-for (k=1:length(z)-1) { dz2(k) = z(k+1)-z(k); }
-dz2(length(z)) = dz2(length(z)-1);
-dx=dx2; dy=dy2; dz=dz2;
-
-Nx = length(x); Ny = length(y); Nz = length(z);
+# ---- volume element (same grid, computed once) ----
+dx2 = matrix(length(x)); dy2 = matrix(length(y)); dz2 = matrix(length(z));
+for (i=1:length(x)-1) { dx2(i) = x(i+1)-x(i); } dx2(length(x)) = dx2(length(x)-1);
+for (j=1:length(y)-1) { dy2(j) = y(j+1)-y(j); } dy2(length(y)) = dy2(length(y)-1);
+for (k=1:length(z)-1) { dz2(k) = z(k+1)-z(k); } dz2(length(z)) = dz2(length(z)-1);
 dV = matrix(Nx,Ny,Nz);
 for (i=1:Nx) { for (j=1:Ny) { for (k=1:Nz) {
-    dV(i,j,k) = dx(i)*dy(j)*dz(k);
+    dV(i,j,k) = dx2(i)*dy2(j)*dz2(k);
 }}}
 
-P_sim = sum(sum(sum(Pabs_density * dV)));
-Pnorm = Pabs_density / P_sim;
+P_sim_1 = sum(sum(sum(Pabs_density_1 * dV)));
 
-# ---- FIXED source-power extraction --------------------------------
-# Original call: sourcepower(f0,2,"laser1")  <-- not a documented
-# sourcepower() signature; select the source object first, then call
-# sourcepower(f) with a single frequency argument. If your Lumerical
-# build silently accepted the old call, double check P1/P2 against the
-# values below - a wrong (too small) Pin_total is the single most
-# likely reason A came out unrealistically high, since A = P_sim/Pin.
 select("laser1");
 P1 = sourcepower(f0);
+
+# ---- Run 2: laser2 only ----
+select("laser1"); set("enabled",0);
+select("laser2"); set("enabled",1);
+run;
+
+E2r = getresult("abs_monitor","E");   # renamed to avoid clashing with E2_1/E2_2 (|E|^2 arrays)
+
+Ex2 = E2r.Ex; Ey2 = E2r.Ey; Ez2 = E2r.Ez;
+E2_2 = abs(Ex2)^2 + abs(Ey2)^2 + abs(Ez2)^2;
+E2_2 = pinch(E2_2,4,1);
+
+# same material/frequency as run 1, so omega and eps_im carry over directly
+Pabs_density_2 = 0.5 * omega * eps0 * eps_im * E2_2;
+Pabs_density_2 = Pabs_density_2 * mask;    # reuse the same mask — grid is identical
+
+P_sim_2 = sum(sum(sum(Pabs_density_2 * dV)));
+
 select("laser2");
 P2 = sourcepower(f0);
 
+# ---- restore both sources enabled, for any later interactive use ----
+select("laser1"); set("enabled",1);
+select("laser2"); set("enabled",1);
+
+########################################################################
+# Incoherent combination: sum powers and absorbed densities directly,
+# NOT amplitudes — this is what "incoherent" means physically.
+########################################################################
+
 Pin_total = P1 + P2;
-A = P_sim/Pin_total;
+P_sim = P_sim_1 + P_sim_2;
+A = P_sim / Pin_total;
+
+Pabs_density = Pabs_density_1 + Pabs_density_2;
+Pnorm = Pabs_density / P_sim;
+
 E_abs_real = A * E_pulse;
-Q_real = Pnorm * E_abs_real/pulse_duration;
+Q_real = Pnorm * E_abs_real / pulse_duration;
 
 dt = pulse_duration;
-dT = Q_real / (rho * Cp);
+dT = Q_real * dt / (rho * Cp);     # includes the earlier *dt unit fix
 dT_max = max(dT);
 
 ?"Peak temperature rise (K):";
@@ -334,20 +331,16 @@ dT_max = max(dT);
 ?"P1 (W) = "+num2str(P1);
 ?"P2 (W) = "+num2str(P2);
 ?"Pin_total (W) = "+num2str(Pin_total);
-?"P_sim / absorbed power in tip (W) = "+num2str(P_sim);
-?"A = "+num2str(A);
+?"P_sim (incoherent absorbed power, W) = "+num2str(P_sim);
+?"A (incoherent) = "+num2str(A);
 ?"Max_Pabs_density = "+num2str(max(Pabs_density));
 ?"max_Q_real = "+num2str(max(Q_real));
-?"Max_E2 = "+num2str(max(E2));
-?"Max_Ez = "+num2str(max(abs(Ez)));
 
 Nx = size(dT,1); Ny = size(dT,2); Nz = size(dT,3);
-iy = round(Ny/2);
 diffy = abs(y - 0);
 iy = find(diffy, min(diffy));
-x = E.x; y = E.y; z = E.z;
 T_xz = pinch(dT,2,iy);
 
 image(x, z, T_xz);
 image(x, z, log10(T_xz + 1e-12));
-matlabsave("APT_Pabs.mat", x, y, z, Q_real);
+matlabsave("APT_Pabs_new.mat", x, y, z, Q_real);
