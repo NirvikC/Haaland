@@ -247,25 +247,21 @@ for(j=1:Ny){
 for(k=1:Nz){
     xx = X(i,j,k); yy = Y(i,j,k); zz = Z(i,j,k);
     r = sqrt(xx^2 + yy^2);
-    inside_cone = 0; inside_tip = 0;
+    inside = 0;
 
-    if (zz <= tip_length/2) {
-        rcone = theta_local*(tip_length/2 - zz) + tip_radius;
-        if(r <= rcone){ inside_cone = 1; }
-    }
-    if (zz > tip_length/2) {
-        if(zz <= z_sphere + tip_radius) {
-            arg = tip_radius^2 - (zz - z_sphere)^2;
-            if(arg >= 0){
-                rsphere = sqrt(arg);
-                if(r <= rsphere){ inside_tip = 1; }
+    if (zz <= z_junction) {
+        rcone = tan(theta_rad)*(z_junction - zz) + R_tip;
+        if (r <= rcone) { inside = 1; }
+    } else {
+        if (zz <= z_apex_top) {
+            arg = R_tip^2 - (zz - z_junction)^2;
+            if (arg >= 0) {
+                if (r <= sqrt(arg)) { inside = 1; }
             }
         }
     }
-    mask(i,j,k) = inside_cone + inside_tip;
-    if (mask(i,j,k) > 1) { mask(i,j,k) = 1; }
+    mask(i,j,k) = inside;
 }}}
-
 Pabs_density_1 = Pabs_density_1 * mask;
 
 # ---- volume element (same grid, computed once) ----
