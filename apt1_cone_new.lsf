@@ -210,7 +210,7 @@ set("output power", 1);
 
 #run;
 
-run;
+#run;
 
 ########################################################################
 # Post-processing
@@ -284,6 +284,7 @@ select("laser1");
 P1 = sourcepower(f0);
 
 # ---- Run 2: laser2 only ----
+switchtolayout;  
 select("laser1"); set("enabled",0);
 select("laser2"); set("enabled",1);
 run;
@@ -304,6 +305,7 @@ select("laser2");
 P2 = sourcepower(f0);
 
 # ---- restore both sources enabled, for any later interactive use ----
+switchtolayout; 
 select("laser1"); set("enabled",1);
 select("laser2"); set("enabled",1);
 
