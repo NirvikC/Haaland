@@ -51,6 +51,7 @@ dz = H/N;
 addfdtd;
 set("x span", 8e-6);
 set("y span", 8e-6);
+set("z", H/2);              # center the simulation box on the apex
 set("z span", 3*H);
 set("x min bc", "PML");
 set("x max bc", "PML");
