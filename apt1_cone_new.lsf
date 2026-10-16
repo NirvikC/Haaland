@@ -163,7 +163,7 @@ set("distance from waist",x0);
 set("wavelength start", lambda0-0.005e-9);
 set("wavelength stop", lambda0+0.005e-9);
 set("x", -x0);
-set("z", H/2);
+set("z", H/2 - 3e -9);
 set("polarization angle", 90);
 set("amplitude", E0_phys);
 
@@ -178,7 +178,7 @@ set("distance from waist",-x0);
 set("wavelength start", lambda0-0.005e-9);
 set("wavelength stop", lambda0+0.005e-9);
 set("x", x0);
-set("z", H/2);
+set("z", H/2 - 3e -9);
 set("polarization angle", 90);
 set("amplitude", E0_phys);
 
