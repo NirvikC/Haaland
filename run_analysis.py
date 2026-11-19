@@ -16,7 +16,8 @@ from apt_io import read_epos, read_rrng, assign_species_codes
 from correlation_table import counts_to_matrix, deviation_matrix
 from correlation_histogram import (
     mn_correlation_histogram, tof_correlation_histogram, dissociation_track,
-    dissociation_occurrence_report,
+    dissociation_occurrence_report,plot_1d_neutral_loss_spectrum,
+    neutral_loss_occurrence_report,
 )
 from fast_pairs import build_pair_counts_fast, build_pair_stream_fast
 import csv
@@ -150,6 +151,43 @@ def main(epos_path, rrng_path):
             'n_true_dissociation_events': est['n_true_dissociation_events'],
             'total_ions_evaporated_estimate': est.get('total_ions_evaporated_estimate'),
             'rate_ppm': est.get('rate_ppm'),
+        })
+
+
+    # ---- 1D m/n Spectrum & Single-Ion + Neutral Dissociation ------
+    neutral_loss_candidates = [
+        (60.0, 28.0, 32.0, 'SiO2(+) -> Si(+) + [neutral O2]', 'crimson'),
+    ]
+
+    plot_1d_neutral_loss_spectrum(
+        data['mn'],
+        neutral_loss_candidates,
+        out_path='neutral_loss_1d_spectrum.png',
+        m_range=(0.0, 70.0),
+        bin_width=0.05,
+    )
+    print("Saved neutral_loss_1d_spectrum.png")
+
+    for mp, m1, m2, label, _ in neutral_loss_candidates:
+        print(f"\n=== {label} (1D m/n band) ===")
+        nl_est = neutral_loss_occurrence_report(
+            mp, m1, m2,
+            mn_all=data['mn'],
+            detector_efficiency=DETECTOR_EFFICIENCY,
+            total_ions_detected=len(data),
+            exclude_peak_mass=m1,
+            exclude_peak_halfwidth=0.4,
+            bg_width=1.0,
+            bg_gap=0.25,
+        )
+        csv_rows.append({
+            'label': label,
+            'mp': mp, 'm1': m1, 'm2': m2,
+            'detector_efficiency': DETECTOR_EFFICIENCY,
+            'n_track_observed': nl_est['n_excess'],
+            'n_true_dissociation_events': nl_est['n_true_dissociation_events'],
+            'total_ions_evaporated_estimate': nl_est['total_ions_evaporated_estimate'],
+            'rate_ppm': nl_est['rate_ppm'],
         })
 
     csv_path = 'dissociation_occurrence.csv'
