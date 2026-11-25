@@ -196,7 +196,8 @@ def dissociation_track(mp, m1, m2, n_points=200):
     frac = np.linspace(0, 0.999, n_points)  # avoid singularity at Vd/V0 = 1 when mp==m1... etc.
 
     def shifted(m_target, m_other):
-        return m_target * (1 - frac) / (1 - (mp / m_target) * frac)
+        return m_target * mp / (frac * m_target + (1 - frac) * mp)
+        #return m_target * (1 - frac) / (1 - (mp / m_target) * frac)
 
     m1_prime = shifted(m1, m2)
     m2_prime = shifted(m2, m1)
