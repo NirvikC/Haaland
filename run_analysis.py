@@ -83,26 +83,26 @@ def main(epos_path, rrng_path):
     # auto-scales to fit the full data range (which for SiO2 spans up
     # to ~1500 Da from large cluster ions), squashing the low-mass
     # region where SiO2 dissociation tracks actually live.
-    ax.set_xlim(80, 110)
-    ax.set_ylim(80, 110)
+    ax.set_xlim(0, 70)
+    ax.set_ylim(0, 70)
 
     # ---- Section 2.3: overlay CANDIDATE dissociation tracks --------
     # Each entry: (parent m/z, daughter1 m/z, daughter2 m/z, label, color)
     # Add/remove candidates here - see chat for how these were chosen
     # from the correlation table hotspots and mass/charge balance.
     candidates = [
-       # (30.0, 44.0, 16.0, 'SiO2(2+) -> SiO+ + O+',  'deeppink'),
-       # (22.0, 28.0, 16.0, 'SiO(2+) -> Si+ + O+',  'cyan'),
-        #(30.0, 28.0, 16.0, 'SiO2(2+) -> Si+ + O+ [+ neutral O]',  'cyan'),
-       # (30.0, 28.0, 32.0, 'SiO2(2+) -> Si+ + O2+',  'orange'),
-        #(30.0, 14.0, 32.0, 'SiO2(2+) -> Si(2+) + [neutral O2]',  'cyan'),
-        #(22.5, 44.0, 1.0,  'SiOH(2+) -> SiO+ + H+',  'cyan'),
-        #(20.0, 14.0, 16.0, 'SiO2(3+) -> Si(2+) + O+ [+ neutral O]', 'red'),
-       # (20.0, 28.0, 16.0, 'SiO2(3+) -> Si+ + O(2+) [+ neutral O]', 'red'),
+        (30.0, 44.0, 16.0, 'SiO2(2+) -> SiO+ + O+',  'deeppink'),
+        (22.0, 28.0, 16.0, 'SiO(2+) -> Si+ + O+',  'cyan'),
+        (30.0, 28.0, 16.0, 'SiO2(2+) -> Si+ + O+ [+ neutral O]',  'cyan'),
+        (30.0, 28.0, 32.0, 'SiO2(2+) -> Si+ + O2+',  'orange'),
+        (22.5, 44.0, 1.0,  'SiOH(2+) -> SiO+ + H+',  'cyan'),
+        (23, 44.0, 2.0,  'SiOH2(2+) -> SiO+ + H2+',  'cyan'),
+        (20.0, 14.0, 16.0, 'SiO2(3+) -> Si(2+) + O+ [+ neutral O]', 'red'),
+        (20.0, 28.0, 16.0, 'SiO2(3+) -> Si+ + O(2+) [+ neutral O]', 'red'),
     ]
 
 
-    plot_lo, plot_hi = 0, 60  # keep in sync with ax.set_xlim/ylim below
+    plot_lo, plot_hi = 0, 70  # keep in sync with ax.set_xlim/ylim below
 
     for mp, m1, m2, label, color in candidates:
         m1_prime, m2_prime = dissociation_track(mp, m1, m2)
@@ -157,6 +157,8 @@ def main(epos_path, rrng_path):
     # ---- 1D m/n Spectrum & Single-Ion + Neutral Dissociation ------
     neutral_loss_candidates = [
         (60.0, 28.0, 32.0, 'SiO2(+) -> Si(+) + [neutral O2]', 'crimson'),
+	(30.0, 14.0, 32.0, 'SiO2(2+) -> Si(2+) + [neutral O2]', 'blue'),
+       (60.0, 44.0,16.0, 'SiO2(+) -> SiO(+) + [neutral O]', 'blue'),
     ]
 
     plot_1d_neutral_loss_spectrum(
