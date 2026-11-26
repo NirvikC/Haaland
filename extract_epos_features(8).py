@@ -116,7 +116,7 @@ the window that contains its FIRST ion, so consecutive windows tile the
 file exactly (no event is counted twice or dropped) and the actual ion
 span can differ from the requested one by a few ions; it is reported as
 ion_lo/ion_hi.
-"""[cite: 19]
+"""
 
 import csv
 import re
@@ -250,7 +250,7 @@ def event_aligned_bounds(starts, ends, ion_min, ion_max):
     if ev_lo >= len(starts) or ev_hi < ev_lo:
         raise ValueError(f"no detection event starts inside ions "
                          f"[{ion_min}, {ion_max}]")
-    return int(starts[ev_lo]), int(ends[ev_hi]), ev_lo, ev_hi[cite: 19]
+    return int(starts[ev_lo]), int(ends[ev_hi]), ev_lo, ev_hi
 
 
 def correlation_features(pulse_w, codes_w, code_names, target_species):
@@ -280,13 +280,13 @@ def correlation_features(pulse_w, codes_w, code_names, target_species):
         feats[f'O_over_E__{a}__{b}'] = o / e if e > 0 else np.nan
         if a != b:   # diagonal Z is ~0 by construction (neutralised)
             feats[f'Z_ij__{a}__{b}'] = z
-    return feats[cite: 19]
+    return feats
 
 
 def _count(sorted_mn, lo, hi):
     """Number of values in [lo, hi) from a sorted array."""
     return int(np.searchsorted(sorted_mn, hi, side='left')
-               - np.searchsorted(sorted_mn, lo, side='left'))[cite: 19]
+               - np.searchsorted(sorted_mn, lo, side='left'))
 
 
 def _in_any_range(x, ranges):
@@ -414,7 +414,7 @@ def spectrum_features(mn, codes, ranges):
             feats[f'{p}__unr_n_excess'] / n_peak_m1 if n_peak_m1 > 0 else np.nan)
         feats[f'{p}__unr_n_in_band__per_ion'] = n_unr_in_band / n_ions if n_ions else np.nan
         feats[f'{p}__unr_n_excess__per_ion'] = feats[f'{p}__unr_n_excess'] / n_ions if n_ions else np.nan
-    return feats[cite: 19]
+    return feats
 
 
 _ELEM = re.compile(r'([A-Z][a-z]?)(\d*)')
@@ -425,7 +425,7 @@ def atoms_in_species(name, element):
     'SiO(1+)', 'SiO2(1+)', 'Si2+' (the charge part is stripped first)."""
     f = re.sub(r'\(\d*[+-]+\)\s*$', '', name.strip())
     f = re.sub(r'\d*[+-]+$', '', f) if f == name.strip() else f
-    return sum(int(n) if n else 1 for el, n in _ELEM.findall(f) if el == element)[cite: 19]
+    return sum(int(n) if n else 1 for el, n in _ELEM.findall(f) if el == element)
 
 
 def composition_features(mn, codes, code_names, ranges):
@@ -468,7 +468,7 @@ def composition_features(mn, codes, code_names, ranges):
         'target_N_O_bgcorr': N_O_bg, 'target_N_Si_bgcorr': N_Si_bg,
         'target_d_bgcorr': d_of(N_O_bg, N_Si_bg),
         'target_d_stderr': stderr,
-    }[cite: 19]
+    }
 
 
 _RAW_SUFFIXES = ('__n_in_band', '__n_bg_expected', '__n_excess', '__A_best', '__A_low',
@@ -485,7 +485,7 @@ def is_raw_count(key):
     if key.startswith(('tail_hi_over_peak_', 'tail_asym_')):
         return False
     return (key.startswith(_RAW_PREFIXES) or key.endswith(_RAW_SUFFIXES)
-            or key in ('n_unranged', 'pulses_elapsed'))[cite: 19]
+            or key in ('n_unranged', 'pulses_elapsed'))
 
 
 def species_ratio_features(codes_w, code_names):
@@ -500,7 +500,7 @@ def species_ratio_features(codes_w, code_names):
         den = sum(by_name.get(s, 0) for s in den_names)
         feats[label] = num / den if den > 0 else np.nan
         feats[f'{label}__frac'] = num / (num + den) if (num + den) > 0 else np.nan
-    return feats[cite: 19]
+    return feats
 
 
 def _voltage_stats(v, prefix):
@@ -514,7 +514,7 @@ def _voltage_stats(v, prefix):
         out[f'{prefix}_drift'] = slope * (n - 1)       # V across the window
     else:
         out[f'{prefix}_drift'] = 0.0
-    return out[cite: 19]
+    return out
 
 
 def field_features(standing_v, pulse_v):
@@ -523,7 +523,7 @@ def field_features(standing_v, pulse_v):
     feats.update(_voltage_stats(pulse_v, 'pulse_v'))
     sm = feats['standing_v_mean']
     feats['pulse_fraction'] = feats['pulse_v_mean'] / sm if sm > 0 else np.nan
-    return feats[cite: 19]
+    return feats
 
 
 def rate_features(pulse_number, delta_pulse_events, ion_lo, ion_hi, n_events):
@@ -541,13 +541,13 @@ def rate_features(pulse_number, delta_pulse_events, ion_lo, ion_hi, n_events):
         'mean_pulses_between_events': float(gaps.mean()) if len(gaps) else np.nan,
         'median_pulses_between_events': float(np.median(gaps)) if len(gaps) else np.nan,
         'std_pulses_between_events': float(gaps.std()) if len(gaps) else np.nan,
-    }[cite: 19]
+    }
 
 
 def metadata_features(run_id, window_idx):
     md = dict(RUN_METADATA.get(run_id, {}))
     md.update(WINDOW_METADATA.get((run_id, window_idx), {}))
-    return {c: float(md[c]) if c in md else np.nan for c in METADATA_COLUMNS}[cite: 19]
+    return {c: float(md[c]) if c in md else np.nan for c in METADATA_COLUMNS}
 
 
 def window_features(ion_min, ion_max, data, mn, pulse_number, codes, code_names,
@@ -569,7 +569,7 @@ def window_features(ion_min, ion_max, data, mn, pulse_number, codes, code_names,
                                ev_hi - ev_lo + 1))
     if DROP_RAW_COUNTS:
         feats = {k: v for k, v in feats.items() if not is_raw_count(k)}
-    return feats[cite: 19]
+    return feats
 
 
 def window_list(n_ions, size, step, keep_partial):
@@ -580,7 +580,7 @@ def window_list(n_ions, size, step, keep_partial):
         if e - s < size and not keep_partial:
             break
         wins.append((s, e - 1))
-    return wins[cite: 19]
+    return wins
 
 
 def window_list_from_ranges(n_ions, window_ranges):
@@ -620,7 +620,7 @@ def window_list_from_starts(n_ions, window_starts, last_end=None):
     if not kept or end <= kept[-1]:
         raise ValueError("last window end must be greater than the last start")
     bounds = kept + [end]
-    return [(bounds[i], bounds[i + 1] - 1) for i in range(len(kept))][cite: 19]
+    return [(bounds[i], bounds[i + 1] - 1) for i in range(len(kept))]
 
 
 def process_run(run_id, epos_path, rrng_path):
@@ -675,7 +675,7 @@ def process_run(run_id, epos_path, rrng_path):
              **metadata_features(run_id, k)}
         rows.append(f)
         print(f"[{run_id}] window {k + 1}/{len(wins)} done")
-    return rows[cite: 19]
+    return rows
 
 
 def main():
