@@ -116,11 +116,10 @@ the window that contains its FIRST ion, so consecutive windows tile the
 file exactly (no event is counted twice or dropped) and the actual ion
 span can differ from the requested one by a few ions; it is reported as
 ion_lo/ion_hi.
-"""
+"""[cite: 19]
 
 import csv
 import re
-import sys
 from itertools import combinations_with_replacement
 
 import numpy as np
@@ -133,7 +132,7 @@ from correlation_histogram import score_single_ion_neutral_loss, single_ion_band
 # ---- EDIT THESE ----
 RUNS = [
     # (run_id, epos_path, rrng_path)
-    ('run1', 'R6033_00293.EPOS', 'R6033_00293.RRNG'),
+    ('run1', 'R6033_00918.EPOS', 'R6033_00918.RRNG'),
 ]
 OUT_CSV = 'window_features.csv'
 
@@ -141,15 +140,22 @@ WINDOW_SIZE_IONS = 1_000_000     # ions per window
 WINDOW_STEP_IONS = None          # None = non-overlapping (step = size)
 KEEP_PARTIAL_LAST_WINDOW = False  # a short last window has different statistics
 
-# Explicit windows (used instead of the regular tiling above, per run).
-# For each run_id give the STARTING ion count (0-based ion index in that
-# ePOS file) of every window. Window k covers ions
-#     WINDOW_STARTS[run_id][k]  ...  WINDOW_STARTS[run_id][k+1] - 1
-# i.e. the next window's start is the (exclusive) end of the previous
-# one, so windows touch but never overlap. The last window runs to the
-# end of the file unless LAST_WINDOW_END[run_id] (an ion count, exclusive)
-# is given. Runs not listed here use the regular WINDOW_SIZE_IONS tiling.
-# window_idx in the CSV / WINDOW_METADATA is the position in this list.
+# Explicit (start_ion, end_ion) windows per run (0-based ion indices;
+# start_ion is inclusive, end_ion is exclusive or None for end of file).
+# Windows do not have to be contiguous or sorted; window_idx in the CSV /
+# WINDOW_METADATA is the position in this list.
+EXPLICIT_WINDOWS = {
+     'run1': [
+         (0, 1_500_000),
+         (1_500_000, 4_000_000),
+         (6_000_000, None),
+     ],
+}
+
+# Legacy start-only windows (used if run_id is not in EXPLICIT_WINDOWS):
+# Window k covers ions WINDOW_STARTS[run_id][k] ... WINDOW_STARTS[run_id][k+1] - 1.
+# The last window runs to the end of the file unless LAST_WINDOW_END[run_id]
+# (an ion count, exclusive) is given.
 WINDOW_STARTS = {
     # 'run1': [0, 1_500_000, 4_000_000, 9_000_000],
 }
@@ -159,23 +165,31 @@ LAST_WINDOW_END = {
 
 # Names must match code_names from your .rrng (read_rrng builds e.g.
 # 'O(1+)', 'O2(1+)', 'SiO(1+)', 'Si(1+)' when there is no Name: tag).
-TARGET_SPECIES = ['O(1+)', 'O2(1+)', 'SiO(1+)', 'Si(1+)']
+TARGET_SPECIES = ['O(1+)', 'O2(1+)', 'SiO(1+)', 'Si(1+)', 'Si(2+)', Si(3+)','SiO(2+)','SiO2(1+)','SiO2(2+)']
 
 # (mp, m1, m2, label) - same convention as run_analysis.py's
 # neutral_loss_candidates: parent m/n, charged fragment m/n, neutral mass.
 NEUTRAL_LOSS_PATHWAYS = [
-    (60.0, 28.0, 32.0, 'SiO2p_to_Sip_O2'),
+   (30.0, 44.0, 16.0, 'path1'),
+        (22.0, 28.0, 16.0, 'path2'),
+        (30.0, 28.0, 16.0, 'path3'),
+        #(30.0, 28.0, 32.0, 'path4'),
+        (22.5, 44.0, 1.0,  'path5'),
+        (23.0, 44.0, 2.0,  'path6'),
+        (20.0, 14.0, 16.0, 'path7'),
+        (20.0, 28.0, 16.0, 'path8'),
+
 ]
 EXCLUDE_PEAK_HALFWIDTH = 0.4   # core of the m1 peak (for the peak-ratio columns)
 DETECTOR_EFFICIENCY = 0.62
 
 # 1D neutral-loss fit (correlation_histogram.score_single_ion_neutral_loss).
 # Same meaning as in run_analysis.py.
-NL_EXCLUDE_PEAK_MASSES = (14.0, 16.0, 28.0, 30.0, 32.0, 44.0, 60.0, 29.0, 45.0, 61.0)
+NL_EXCLUDE_PEAK_MASSES = (14.0, 16.0, 18.0,28.0, 30.0, 32.0, 44.0, 60.0, 29.0, 45.0, 61.0)
 NL_EXCLUDE_HALFWIDTH = 0.6     # removed around each of those masses (they also
                                # become tail sources in the fit)
-NL_EXTRA_PEAK_MASSES = (17.0, 18.0)   # UNRANGED peaks whose tails must be modelled (ranged ones are automatic)
-NL_EXTRA_MASK_INTERVALS = ((25.0, 27.5),)   # unranged bump at ~26 Da to drop from the fit
+NL_EXTRA_PEAK_MASSES = (17.0)   # UNRANGED peaks whose tails must be modelled (ranged ones are automatic)
+NL_EXTRA_MASK_INTERVALS = ((25.5, 26.5),)   # unranged bump at ~26 Da to drop from the fit
 NL_RANGE_MARGIN = 0.1          # widen every .rrng range by this much in the fit
 NL_PROFILE_CI = True           # profile-likelihood A_low / A_high (slower)
 
@@ -184,11 +198,11 @@ NL_PROFILE_CI = True           # profile-likelihood A_low / A_high (slower)
 # tails are TAIL_WIDTH wide, directly above and below it. Make sure a
 # tail window does not run into a neighbouring peak (e.g. Si 28/29/30 are
 # ~1 Da apart: keep PEAK_HALFWIDTH + TAIL_WIDTH < ~0.6).
-PEAKS = [('Op', 16.0), ('Sip', 28.0), ('O2p', 32.0), ('SiOp', 44.0)]
+PEAKS = [('Op', 16.0), ('Si2p', 28.0),('Si1p', 14.0), ('O2p', 32.0), ('SiOp', 44.0),('SiO2p', 60.0)]
 PEAK_HALFWIDTH = 0.4
 TAIL_WIDTH = 0.25
 
-SPECTRUM_RANGE = (0.0, 70.0)   # m/n range used for background estimation
+SPECTRUM_RANGE = (0.0, 90.0)   # m/n range used for background estimation
 SPECTRUM_BIN = 0.05
 
 # Species ratios: (label, [numerator species], [denominator species]).
@@ -197,18 +211,18 @@ SPECTRUM_BIN = 0.05
 # difference between O(2+) (doubly charged atom, ~8 Da) and O2(1+)
 # (molecular ion, ~32 Da). Edit freely - add/remove tuples.
 SPECIES_RATIOS = [
-    ('O1_over_O2plus',    ['O(1+)'],   ['O(2+)']),
-    ('O1_over_O2mol',     ['O(1+)'],   ['O2(1+)']),
+    #('O1_over_O2plus',    ['O(1+)'],   ['O(2+)']),
+    #('O1_over_O2mol',     ['O(1+)'],   ['O2(1+)']),
     ('Si1_over_Si2',      ['Si(1+)'],  ['Si(2+)']),
     ('Si2_over_Si3',      ['Si(2+)'],  ['Si(3+)']),
     ('SiO1_over_SiO2plus', ['SiO(1+)'], ['SiO(2+)']),
-    ('SiO1_over_SiO2mol', ['SiO(1+)'], ['SiO2(1+)']),
+    ('SiO2_over_SiO2plus', ['SiO2(1+)'], ['SiO2(2+)']),
 ]
 
 # Target / normalisation
 BG_FLANK_DA = 2.0         # width of the free (unranged) flank on each side of a
                           # range used for its local background density
-DROP_RAW_COUNTS = False   # True: omit raw count columns (keep per-ion / per-pair ones)
+DROP_RAW_COUNTS = True   # True: omit raw count columns (keep per-ion / per-pair ones)
 
 # Metadata you know for each run/window (not stored in the ePOS). Every
 # name in METADATA_COLUMNS becomes a CSV column. Values come from
@@ -216,12 +230,12 @@ DROP_RAW_COUNTS = False   # True: omit raw count columns (keep per-ion / per-pai
 # WINDOW_METADATA[(run_id, window_idx)]. Missing values become NaN.
 METADATA_COLUMNS = ['laser_energy_pJ', 'temperature_K']
 RUN_METADATA = {
-    # 'run1': {'laser_energy_pJ': 50, 'temperature_K': 50},
+    'run1': {'laser_energy_pJ': 50, 'temperature_K': 50},
 }
 WINDOW_METADATA = {
-    # ('run1', 3): {'laser_energy_pJ': 60},   # optional per-window override
+     ('run1', 1): {'laser_energy_pJ': 65},   # optional per-window override
 }
-# ---------------------
+
 
 
 def event_aligned_bounds(starts, ends, ion_min, ion_max):
@@ -236,7 +250,7 @@ def event_aligned_bounds(starts, ends, ion_min, ion_max):
     if ev_lo >= len(starts) or ev_hi < ev_lo:
         raise ValueError(f"no detection event starts inside ions "
                          f"[{ion_min}, {ion_max}]")
-    return int(starts[ev_lo]), int(ends[ev_hi]), ev_lo, ev_hi
+    return int(starts[ev_lo]), int(ends[ev_hi]), ev_lo, ev_hi[cite: 19]
 
 
 def correlation_features(pulse_w, codes_w, code_names, target_species):
@@ -266,13 +280,13 @@ def correlation_features(pulse_w, codes_w, code_names, target_species):
         feats[f'O_over_E__{a}__{b}'] = o / e if e > 0 else np.nan
         if a != b:   # diagonal Z is ~0 by construction (neutralised)
             feats[f'Z_ij__{a}__{b}'] = z
-    return feats
+    return feats[cite: 19]
 
 
 def _count(sorted_mn, lo, hi):
     """Number of values in [lo, hi) from a sorted array."""
     return int(np.searchsorted(sorted_mn, hi, side='left')
-               - np.searchsorted(sorted_mn, lo, side='left'))
+               - np.searchsorted(sorted_mn, lo, side='left'))[cite: 19]
 
 
 def _in_any_range(x, ranges):
@@ -400,7 +414,7 @@ def spectrum_features(mn, codes, ranges):
             feats[f'{p}__unr_n_excess'] / n_peak_m1 if n_peak_m1 > 0 else np.nan)
         feats[f'{p}__unr_n_in_band__per_ion'] = n_unr_in_band / n_ions if n_ions else np.nan
         feats[f'{p}__unr_n_excess__per_ion'] = feats[f'{p}__unr_n_excess'] / n_ions if n_ions else np.nan
-    return feats
+    return feats[cite: 19]
 
 
 _ELEM = re.compile(r'([A-Z][a-z]?)(\d*)')
@@ -411,7 +425,7 @@ def atoms_in_species(name, element):
     'SiO(1+)', 'SiO2(1+)', 'Si2+' (the charge part is stripped first)."""
     f = re.sub(r'\(\d*[+-]+\)\s*$', '', name.strip())
     f = re.sub(r'\d*[+-]+$', '', f) if f == name.strip() else f
-    return sum(int(n) if n else 1 for el, n in _ELEM.findall(f) if el == element)
+    return sum(int(n) if n else 1 for el, n in _ELEM.findall(f) if el == element)[cite: 19]
 
 
 def composition_features(mn, codes, code_names, ranges):
@@ -454,7 +468,7 @@ def composition_features(mn, codes, code_names, ranges):
         'target_N_O_bgcorr': N_O_bg, 'target_N_Si_bgcorr': N_Si_bg,
         'target_d_bgcorr': d_of(N_O_bg, N_Si_bg),
         'target_d_stderr': stderr,
-    }
+    }[cite: 19]
 
 
 _RAW_SUFFIXES = ('__n_in_band', '__n_bg_expected', '__n_excess', '__A_best', '__A_low',
@@ -471,7 +485,7 @@ def is_raw_count(key):
     if key.startswith(('tail_hi_over_peak_', 'tail_asym_')):
         return False
     return (key.startswith(_RAW_PREFIXES) or key.endswith(_RAW_SUFFIXES)
-            or key in ('n_unranged', 'pulses_elapsed'))
+            or key in ('n_unranged', 'pulses_elapsed'))[cite: 19]
 
 
 def species_ratio_features(codes_w, code_names):
@@ -486,7 +500,7 @@ def species_ratio_features(codes_w, code_names):
         den = sum(by_name.get(s, 0) for s in den_names)
         feats[label] = num / den if den > 0 else np.nan
         feats[f'{label}__frac'] = num / (num + den) if (num + den) > 0 else np.nan
-    return feats
+    return feats[cite: 19]
 
 
 def _voltage_stats(v, prefix):
@@ -500,7 +514,7 @@ def _voltage_stats(v, prefix):
         out[f'{prefix}_drift'] = slope * (n - 1)       # V across the window
     else:
         out[f'{prefix}_drift'] = 0.0
-    return out
+    return out[cite: 19]
 
 
 def field_features(standing_v, pulse_v):
@@ -509,7 +523,7 @@ def field_features(standing_v, pulse_v):
     feats.update(_voltage_stats(pulse_v, 'pulse_v'))
     sm = feats['standing_v_mean']
     feats['pulse_fraction'] = feats['pulse_v_mean'] / sm if sm > 0 else np.nan
-    return feats
+    return feats[cite: 19]
 
 
 def rate_features(pulse_number, delta_pulse_events, ion_lo, ion_hi, n_events):
@@ -527,13 +541,13 @@ def rate_features(pulse_number, delta_pulse_events, ion_lo, ion_hi, n_events):
         'mean_pulses_between_events': float(gaps.mean()) if len(gaps) else np.nan,
         'median_pulses_between_events': float(np.median(gaps)) if len(gaps) else np.nan,
         'std_pulses_between_events': float(gaps.std()) if len(gaps) else np.nan,
-    }
+    }[cite: 19]
 
 
 def metadata_features(run_id, window_idx):
     md = dict(RUN_METADATA.get(run_id, {}))
     md.update(WINDOW_METADATA.get((run_id, window_idx), {}))
-    return {c: float(md[c]) if c in md else np.nan for c in METADATA_COLUMNS}
+    return {c: float(md[c]) if c in md else np.nan for c in METADATA_COLUMNS}[cite: 19]
 
 
 def window_features(ion_min, ion_max, data, mn, pulse_number, codes, code_names,
@@ -555,7 +569,7 @@ def window_features(ion_min, ion_max, data, mn, pulse_number, codes, code_names,
                                ev_hi - ev_lo + 1))
     if DROP_RAW_COUNTS:
         feats = {k: v for k, v in feats.items() if not is_raw_count(k)}
-    return feats
+    return feats[cite: 19]
 
 
 def window_list(n_ions, size, step, keep_partial):
@@ -566,6 +580,28 @@ def window_list(n_ions, size, step, keep_partial):
         if e - s < size and not keep_partial:
             break
         wins.append((s, e - 1))
+    return wins[cite: 19]
+
+
+def window_list_from_ranges(n_ions, window_ranges):
+    """Windows from explicit (start, end) ion pairs (0-based; start
+    inclusive, end exclusive or None for end of file). Returns inclusive
+    (ion_min, ion_max) tuples."""
+    wins = []
+    for idx, pair in enumerate(window_ranges):
+        if len(pair) != 2:
+            raise ValueError(f"window {idx} must be a (start, end) pair")
+        s_raw, e_raw = pair
+        s = int(s_raw)
+        e = n_ions if e_raw is None else min(int(e_raw), n_ions)
+        if s < 0 or s >= n_ions:
+            print(f"   !! window {idx} start {s:,} outside [0, {n_ions:,}); skipped.")
+            continue
+        if e <= s:
+            raise ValueError(f"window {idx} end ({e}) must be greater than start ({s})")
+        wins.append((s, e - 1))
+    if not wins:
+        raise ValueError("no valid explicit windows remained for this run")
     return wins
 
 
@@ -584,7 +620,7 @@ def window_list_from_starts(n_ions, window_starts, last_end=None):
     if not kept or end <= kept[-1]:
         raise ValueError("last window end must be greater than the last start")
     bounds = kept + [end]
-    return [(bounds[i], bounds[i + 1] - 1) for i in range(len(kept))]
+    return [(bounds[i], bounds[i + 1] - 1) for i in range(len(kept))][cite: 19]
 
 
 def process_run(run_id, epos_path, rrng_path):
@@ -618,7 +654,9 @@ def process_run(run_id, epos_path, rrng_path):
     if run_id not in RUN_METADATA and not any(k[0] == run_id for k in WINDOW_METADATA):
         print(f"[{run_id}] !! no metadata for this run ({METADATA_COLUMNS} will be NaN).")
     starts, ends, _ = _event_boundaries(pulse_number)
-    if run_id in WINDOW_STARTS:
+    if run_id in EXPLICIT_WINDOWS:
+        wins = window_list_from_ranges(len(mn), EXPLICIT_WINDOWS[run_id])
+    elif run_id in WINDOW_STARTS:
         wins = window_list_from_starts(len(mn), WINDOW_STARTS[run_id],
                                        LAST_WINDOW_END.get(run_id))
     else:
@@ -637,7 +675,7 @@ def process_run(run_id, epos_path, rrng_path):
              **metadata_features(run_id, k)}
         rows.append(f)
         print(f"[{run_id}] window {k + 1}/{len(wins)} done")
-    return rows
+    return rows[cite: 19]
 
 
 def main():
