@@ -147,7 +147,7 @@ from correlation_histogram import (
 # ---- EDIT THESE ----
 RUNS = [
     # (run_id, epos_path, rrng_path)
-    ('run1', 'R6033_00918.EPOS', 'R6033_00918.RRNG'),
+    ('run1', '../ME_Folder/R6033_00918.EPOS', '../ME_Folder/R6033_00918.RRNG'),
 ]
 OUT_CSV = 'window_features.csv'
 
@@ -161,10 +161,22 @@ KEEP_PARTIAL_LAST_WINDOW = False  # a short last window has different statistics
 # WINDOW_METADATA is the position in this list.
 EXPLICIT_WINDOWS = {
     'run1': [
-        (0, 1_500_000),
-        (1_500_000, 4_000_000),
-        (6_000_000, None),
-    ],
+       # (0, 1_500_000),
+       # (1_500_000, 4_000_000),
+      #  (6_000_000, None),
+	(2.00E+06,	3.50E+06),
+	(3.50E+06,	5.00E+06),
+	( 7.00E+06,	8.50E+06),
+	(8.50E+06,	1.00E+07),
+	(1.15E+07,	1.30E+07),
+	(1.30E+07,	1.45E+07),
+	(1.70E+07,	1.85E+07),
+	(1.85E+07,	2.00E+07),
+	(2.20E+07,	2.35E+07),
+	(2.35E+07,	2.50E+07),
+	(2.90E+07,	3.05E+07),
+	(3.05E+07,	3.20E+07)
+    ]
 }
 
 # Legacy start-only windows (used if run_id is not in EXPLICIT_WINDOWS):
@@ -264,6 +276,17 @@ RUN_METADATA = {
 }
 WINDOW_METADATA = {
     ('run1', 1): {'laser_energy_pJ': 65},   # optional per-window override
+    ('run1', 2): {'laser_energy_pJ': 65}, 
+    ('run1', 3): {'laser_energy_pJ': 85}, 
+ ('run1', 4): {'laser_energy_pJ': 85}, 
+ ('run1', 5): {'laser_energy_pJ': 110}, 
+ ('run1', 6): {'laser_energy_pJ': 110}, 
+ ('run1', 7): {'laser_energy_pJ': 150}, 
+ ('run1', 8): {'laser_energy_pJ': 150}, 
+ ('run1', 9): {'laser_energy_pJ': 180}, 
+ ('run1', 10): {'laser_energy_pJ': 180}, 
+('run1', 11): {'laser_energy_pJ': 230}, 
+ ('run1', 12): {'laser_energy_pJ': 230} 
 }
 # ---------------------
 
