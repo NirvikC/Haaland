@@ -113,7 +113,7 @@ N_JOBS = -1
 PHYSICS_COLUMNS = []
 
 SEED = 0
-# ======================================================[cite: 10, 13]
+# ======================================================
 
 ID_COLS = {RUN_COL, POS_COL, 'ion_min', 'ion_max', 'ion_lo', 'ion_hi'}
 WEIGHT_COLS = {'n_ions', 'n_pairs_total'}      # kept in the CSV, never used as features
@@ -145,7 +145,7 @@ FAMILY_RULES = [
         r'^(ions_per_pulse|events_per_pulse|.*pulses_between_events|pulses_elapsed)', c)),
     ('detector', lambda c: re.match(r'^(det_|minsep|multi_)', c)),
     ('background_ranging', lambda c: re.match(r'^(bg_density|frac_unranged|unranged|ranged_)', c)),
-][cite: 10, 13]
+]
 
 
 def family_of(col):
