@@ -18,7 +18,7 @@ row of features, written to a CSV (one CSV for all runs/windows):
      kept. Pairs that never occur get O=E=Z=0.
        n_pairs_total    total number of ion pairs in the window's table
 
-  B. 1D-spectrum features (every ion, NOT filtered by multiplicity)
+  B. 1D-spectrum & dissociation features (every ion / pair stream)
        n_ions, n_unranged, frac_unranged
        bg_density_per_Da   unranged-ion density (counts/Da) measured only
                            in mass regions that are not inside any
@@ -47,6 +47,10 @@ row of features, written to a CSV (one CSV for all runs/windows):
          excess_over_peak  A_best / ions in the m1 peak
          unr_*             simple density-ratio features that count only
                            unranged ions in the band (no model)
+       For each pathway in DISSOCIATION_2D_PATHWAYS (two charged fragments):
+         d2d_<label>__*    parallel columns to nl_<label>__* using 2D pair
+                           track scoring, shuffled-pair background
+                           subtraction, and efficiency^2 event scaling.
 
 IMPORTANT: the neutral-loss tail and ordinary peak tails look alike in a 1D
 spectrum, so A_best is poorly determined when A_low = 0. For regression use
@@ -125,9 +129,20 @@ from itertools import combinations_with_replacement
 import numpy as np
 
 from apt_io import read_rrng, assign_species_codes
-from fast_pairs import read_epos_mmap, _event_boundaries, build_pair_counts_fast
+from fast_pairs import (
+    read_epos_mmap,
+    _event_boundaries,
+    build_pair_counts_fast,
+    build_pair_stream_fast,
+)
 from correlation_table import counts_to_matrix, deviation_matrix
-from correlation_histogram import score_single_ion_neutral_loss, single_ion_band_bounds
+from correlation_histogram import (
+    score_single_ion_neutral_loss,
+    single_ion_band_bounds,
+    score_dissociation_candidate,
+    background_score,
+    estimate_dissociation_occurrence,
+)
 
 # ---- EDIT THESE ----
 RUNS = [
@@ -145,11 +160,11 @@ KEEP_PARTIAL_LAST_WINDOW = False  # a short last window has different statistics
 # Windows do not have to be contiguous or sorted; window_idx in the CSV /
 # WINDOW_METADATA is the position in this list.
 EXPLICIT_WINDOWS = {
-     'run1': [
-         (0, 1_500_000),
-         (1_500_000, 4_000_000),
-         (6_000_000, None),
-     ],
+    'run1': [
+        (0, 1_500_000),
+        (1_500_000, 4_000_000),
+        (6_000_000, None),
+    ],
 }
 
 # Legacy start-only windows (used if run_id is not in EXPLICIT_WINDOWS):
@@ -165,30 +180,40 @@ LAST_WINDOW_END = {
 
 # Names must match code_names from your .rrng (read_rrng builds e.g.
 # 'O(1+)', 'O2(1+)', 'SiO(1+)', 'Si(1+)' when there is no Name: tag).
-TARGET_SPECIES = ['O(1+)', 'O2(1+)', 'SiO(1+)', 'Si(1+)', 'Si(2+)', Si(3+)','SiO(2+)','SiO2(1+)','SiO2(2+)']
+TARGET_SPECIES = [
+    'O(1+)', 'O2(1+)', 'SiO(1+)', 'Si(1+)', 'Si(2+)', 'Si(3+)',
+    'SiO(2+)', 'SiO2(1+)', 'SiO2(2+)',
+]
 
 # (mp, m1, m2, label) - same convention as run_analysis.py's
 # neutral_loss_candidates: parent m/n, charged fragment m/n, neutral mass.
 NEUTRAL_LOSS_PATHWAYS = [
-   (30.0, 44.0, 16.0, 'path1'),
-        (22.0, 28.0, 16.0, 'path2'),
-        (30.0, 28.0, 16.0, 'path3'),
-        #(30.0, 28.0, 32.0, 'path4'),
-        (22.5, 44.0, 1.0,  'path5'),
-        (23.0, 44.0, 2.0,  'path6'),
-        (20.0, 14.0, 16.0, 'path7'),
-        (20.0, 28.0, 16.0, 'path8'),
-
+    (60.0, 28.0, 32.0, 'path1'),
+    (30.0, 14.0, 32.0, 'path2'),
+    (60.0, 44.0, 16.0, 'path3'),
 ]
+
+# 2D two-charged-ion dissociation pathways: (mp, m1, m2, label)
+DISSOCIATION_2D_PATHWAYS = [
+    (30.0, 44.0, 16.0, 'SiO2_2p_to_SiOp_Op'),
+    (22.0, 28.0, 16.0, 'SiO_2p_to_Sip_Op'),
+    (30.0, 28.0, 16.0, 'SiO2_2p_to_Sip_Op_O'),
+    (30.0, 28.0, 32.0, 'SiO2_2p_to_Sip_O2p'),
+]
+D2D_TOLERANCE = 0.5
+D2D_EXCLUDE_RADIUS = 1.0
+D2D_N_SHUFFLES = 5
+D2D_SEED = 0
+
 EXCLUDE_PEAK_HALFWIDTH = 0.4   # core of the m1 peak (for the peak-ratio columns)
 DETECTOR_EFFICIENCY = 0.62
 
 # 1D neutral-loss fit (correlation_histogram.score_single_ion_neutral_loss).
 # Same meaning as in run_analysis.py.
-NL_EXCLUDE_PEAK_MASSES = (14.0, 16.0, 18.0,28.0, 30.0, 32.0, 44.0, 60.0, 29.0, 45.0, 61.0)
+NL_EXCLUDE_PEAK_MASSES = (14.0, 16.0, 18.0, 28.0, 30.0, 32.0, 44.0, 60.0, 29.0, 45.0, 61.0)
 NL_EXCLUDE_HALFWIDTH = 0.6     # removed around each of those masses (they also
                                # become tail sources in the fit)
-NL_EXTRA_PEAK_MASSES = (17.0)   # UNRANGED peaks whose tails must be modelled (ranged ones are automatic)
+NL_EXTRA_PEAK_MASSES = (17.0,)  # UNRANGED peaks whose tails must be modelled (ranged ones are automatic)
 NL_EXTRA_MASK_INTERVALS = ((25.5, 26.5),)   # unranged bump at ~26 Da to drop from the fit
 NL_RANGE_MARGIN = 0.1          # widen every .rrng range by this much in the fit
 NL_PROFILE_CI = True           # profile-likelihood A_low / A_high (slower)
@@ -198,7 +223,10 @@ NL_PROFILE_CI = True           # profile-likelihood A_low / A_high (slower)
 # tails are TAIL_WIDTH wide, directly above and below it. Make sure a
 # tail window does not run into a neighbouring peak (e.g. Si 28/29/30 are
 # ~1 Da apart: keep PEAK_HALFWIDTH + TAIL_WIDTH < ~0.6).
-PEAKS = [('Op', 16.0), ('Si2p', 28.0),('Si1p', 14.0), ('O2p', 32.0), ('SiOp', 44.0),('SiO2p', 60.0)]
+PEAKS = [
+    ('Op', 16.0), ('Si2p', 28.0), ('Si1p', 14.0),
+    ('O2p', 32.0), ('SiOp', 44.0), ('SiO2p', 60.0),
+]
 PEAK_HALFWIDTH = 0.4
 TAIL_WIDTH = 0.25
 
@@ -211,8 +239,6 @@ SPECTRUM_BIN = 0.05
 # difference between O(2+) (doubly charged atom, ~8 Da) and O2(1+)
 # (molecular ion, ~32 Da). Edit freely - add/remove tuples.
 SPECIES_RATIOS = [
-    #('O1_over_O2plus',    ['O(1+)'],   ['O(2+)']),
-    #('O1_over_O2mol',     ['O(1+)'],   ['O2(1+)']),
     ('Si1_over_Si2',      ['Si(1+)'],  ['Si(2+)']),
     ('Si2_over_Si3',      ['Si(2+)'],  ['Si(3+)']),
     ('SiO1_over_SiO2plus', ['SiO(1+)'], ['SiO(2+)']),
@@ -233,9 +259,9 @@ RUN_METADATA = {
     'run1': {'laser_energy_pJ': 50, 'temperature_K': 50},
 }
 WINDOW_METADATA = {
-     ('run1', 1): {'laser_energy_pJ': 65},   # optional per-window override
+    ('run1', 1): {'laser_energy_pJ': 65},   # optional per-window override
 }
-
+# ---------------------
 
 
 def event_aligned_bounds(starts, ends, ion_min, ion_max):
@@ -294,6 +320,78 @@ def _in_any_range(x, ranges):
     for r in ranges:
         mask |= (x >= r['lo']) & (x <= r['hi'])
     return mask
+
+
+def dissociation_2d_features(pulse_w, mn_w, tof_w, mn_sorted, n_ions, n_pairs_total=np.nan):
+    """2D two-charged-ion dissociation track features using column names
+    parallel to the 1D neutral-loss features (prefixed with `d2d_<label>__`)."""
+    feats = {}
+    if not DISSOCIATION_2D_PATHWAYS:
+        return feats
+
+    mn_i, mn_j, _, _ = build_pair_stream_fast(pulse_w, mn_w, tof_w)
+    total_evap = n_ions / DETECTOR_EFFICIENCY if DETECTOR_EFFICIENCY else np.nan
+    eff2 = DETECTOR_EFFICIENCY ** 2 if DETECTOR_EFFICIENCY else np.nan
+
+    for mp, m1, m2, label in DISSOCIATION_2D_PATHWAYS:
+        b_lo, b_hi, _ = single_ion_band_bounds(mp, m1, m2)
+        if len(mn_i) > 0:
+            n_raw = float(score_dissociation_candidate(
+                mp, m1, m2, mn_i, mn_j,
+                tolerance=D2D_TOLERANCE,
+                exclude_radius=D2D_EXCLUDE_RADIUS,
+            ))
+            bg_mean, bg_std = background_score(
+                mp, m1, m2, mn_i, mn_j,
+                tolerance=D2D_TOLERANCE,
+                exclude_radius=D2D_EXCLUDE_RADIUS,
+                n_shuffles=D2D_N_SHUFFLES,
+                seed=D2D_SEED,
+            )
+            n_net = max(0.0, n_raw - bg_mean)
+            n_low_obs = max(0.0, n_raw - (bg_mean + bg_std))
+            n_high_obs = max(0.0, n_raw - max(0.0, bg_mean - bg_std))
+            est = estimate_dissociation_occurrence(n_net, DETECTOR_EFFICIENCY, n_ions)
+            n_true = float(est['n_true_dissociation_events'])
+            n_true_lo = float(n_low_obs / eff2) if eff2 else np.nan
+            n_true_hi = float(n_high_obs / eff2) if eff2 else np.nan
+        else:
+            n_raw = bg_mean = bg_std = n_net = n_low_obs = n_high_obs = 0.0
+            n_true = n_true_lo = n_true_hi = 0.0
+
+        rate = lambda n: float(1e6 * n / total_evap) if total_evap else np.nan
+        n_peak_m1 = _count(mn_sorted, m1 - EXCLUDE_PEAK_HALFWIDTH,
+                           m1 + EXCLUDE_PEAK_HALFWIDTH)
+
+        p = f'd2d_{label}'
+        feats[f'{p}__band_lo'] = b_lo
+        feats[f'{p}__band_hi'] = b_hi
+        feats[f'{p}__n_in_band'] = n_raw
+        feats[f'{p}__n_bg_expected'] = float(bg_mean)
+        feats[f'{p}__n_excess'] = float(n_net)
+        feats[f'{p}__A_best'] = float(n_net)
+        feats[f'{p}__A_low'] = float(n_low_obs)
+        feats[f'{p}__A_high'] = float(n_high_obs)
+        feats[f'{p}__n_true_events'] = n_true
+        feats[f'{p}__n_true_events_low'] = n_true_lo
+        feats[f'{p}__n_true_events_high'] = n_true_hi
+        feats[f'{p}__rate_ppm'] = rate(n_true)
+        feats[f'{p}__rate_ppm_low'] = rate(n_true_lo)
+        feats[f'{p}__rate_ppm_high'] = rate(n_true_hi)
+        feats[f'{p}__visible_fraction'] = np.nan
+        feats[f'{p}__chi2_red'] = np.nan
+        feats[f'{p}__chi2_red_null'] = np.nan
+        feats[f'{p}__delta_dev'] = np.nan
+        feats[f'{p}__n_variants'] = float(D2D_N_SHUFFLES)
+        feats[f'{p}__excess_over_peak'] = n_net / n_peak_m1 if n_peak_m1 > 0 else np.nan
+        for nm in ('n_in_band', 'n_bg_expected', 'n_excess'):
+            feats[f'{p}__{nm}__per_ion'] = feats[f'{p}__{nm}'] / n_ions if n_ions else np.nan
+            feats[f'{p}__{nm}__per_pair'] = (
+                feats[f'{p}__{nm}'] / n_pairs_total
+                if np.isfinite(n_pairs_total) and n_pairs_total > 0 else np.nan
+            )
+
+    return feats
 
 
 def spectrum_features(mn, codes, ranges):
@@ -558,9 +656,16 @@ def window_features(ion_min, ion_max, data, mn, pulse_number, codes, code_names,
     sl = slice(ion_lo, ion_hi)
     feats = {'ion_min': ion_min, 'ion_max': ion_max,
              'ion_lo': ion_lo, 'ion_hi': ion_hi - 1}
-    feats.update(correlation_features(pulse_number[sl], codes[sl],
-                                      code_names, TARGET_SPECIES))
+    corr_feats = correlation_features(pulse_number[sl], codes[sl],
+                                      code_names, TARGET_SPECIES)
+    feats.update(corr_feats)
     feats.update(spectrum_features(mn[sl], codes[sl], ranges))
+    feats.update(dissociation_2d_features(
+        pulse_number[sl], mn[sl], data['tof'][sl],
+        np.sort(np.asarray(mn[sl], dtype=np.float64)),
+        len(mn[sl]),
+        n_pairs_total=corr_feats.get('n_pairs_total', np.nan),
+    ))
     feats.update(species_ratio_features(codes[sl], code_names))
     feats.update(composition_features(mn[sl], codes[sl], code_names, ranges))
     feats.update(field_features(data['standing_v'][sl], data['pulse_v'][sl]))
