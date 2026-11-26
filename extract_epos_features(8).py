@@ -195,10 +195,14 @@ NEUTRAL_LOSS_PATHWAYS = [
 
 # 2D two-charged-ion dissociation pathways: (mp, m1, m2, label)
 DISSOCIATION_2D_PATHWAYS = [
-    (30.0, 44.0, 16.0, 'SiO2_2p_to_SiOp_Op'),
-    (22.0, 28.0, 16.0, 'SiO_2p_to_Sip_Op'),
-    (30.0, 28.0, 16.0, 'SiO2_2p_to_Sip_Op_O'),
-    (30.0, 28.0, 32.0, 'SiO2_2p_to_Sip_O2p'),
+      (30.0, 44.0, 16.0, 'reaction1'),
+        (22.0, 28.0, 16.0, 'reaction2'),
+        (30.0, 28.0, 16.0, 'reaction3'),
+        #(30.0, 28.0, 32.0, 'reaction4'),
+        (22.5, 44.0, 1.0,  'reaction5'),
+        (23.0, 44.0, 2.0,  'reaction6'),
+        (20.0, 14.0, 16.0, 'reaction7'),
+        (20.0, 28.0, 16.0, 'reaction8'),
 ]
 D2D_TOLERANCE = 0.5
 D2D_EXCLUDE_RADIUS = 1.0
