@@ -30,7 +30,7 @@ Steps (everything is written to OUT_DIR):
        05_rho_dotplot.png        sorted rho with CI (representatives)
        06_scatter_top.png        scatter grid of the top features
   4. Physics baseline (optional, PHYSICS_COLUMNS): target_d against the
-     dissociation-based estimates.            04b_physics_check.png
+     1D neutral-loss and 2D dissociation estimates.    04b_physics_check.png
   5. ML that survives n ~ 20 (honest cross-validation only)
        cv_results.csv            out-of-fold R2 / RMSE / Spearman for: mean,
                                  metadata-only, position-only, lasso, elastic
@@ -109,10 +109,11 @@ PERM_CV = 100                    # target permutations for linear / PLS models
 PERM_CV_TREES = 20               # target permutations for RF / GBM (slow)
 N_JOBS = -1
 
-PHYSICS_COLUMNS = []             # e.g. ['nl_SiO2p_to_Sip_O2__rate_ppm_high'] (step 4)
+# e.g. ['nl_path1__rate_ppm_high', 'd2d_SiO2_2p_to_SiOp_Op__rate_ppm_high'] (step 4)
+PHYSICS_COLUMNS = []
 
 SEED = 0
-# ======================================================
+# ======================================================[cite: 10, 13]
 
 ID_COLS = {RUN_COL, POS_COL, 'ion_min', 'ion_max', 'ion_lo', 'ion_hi'}
 WEIGHT_COLS = {'n_ions', 'n_pairs_total'}      # kept in the CSV, never used as features
@@ -136,7 +137,7 @@ def is_raw_count(key):
 FAMILY_RULES = [
     ('metadata', lambda c: c in METADATA_COLS),
     ('pair_correlation', lambda c: re.match(r'^(O_ij|E_ij|O_over_E|Z_ij)__', c)),
-    ('neutral_loss', lambda c: c.startswith('nl_')),
+    ('neutral_loss', lambda c: c.startswith(('nl_', 'd2d_'))),
     ('peak_tails', lambda c: re.match(r'^(peak_|tail_)', c)),
     ('species_ratio', lambda c: re.search(r'__frac$|^(O|Si|SiO)\d?_over_', c)),
     ('field_pulsing', lambda c: re.match(r'^(standing_v|pulse_v|pulse_fraction)', c)),
@@ -144,7 +145,7 @@ FAMILY_RULES = [
         r'^(ions_per_pulse|events_per_pulse|.*pulses_between_events|pulses_elapsed)', c)),
     ('detector', lambda c: re.match(r'^(det_|minsep|multi_)', c)),
     ('background_ranging', lambda c: re.match(r'^(bg_density|frac_unranged|unranged|ranged_)', c)),
-]
+][cite: 10, 13]
 
 
 def family_of(col):
